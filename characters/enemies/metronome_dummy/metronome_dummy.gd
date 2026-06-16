@@ -50,9 +50,7 @@ func _draw_ground_instructions() -> void:
 	var label := Label3D.new()
 	label.text = (
 		"METRONOME CALIBRATION\n"
-		+ "Hold  L2 / F  to enter Parry mode\n\n"
-		+ "High click  (Beat 1)     →   Y button  /  T key\n"
-		+ "Low clicks  (Beats 2-4)  →   A button  /  G key\n\n"
+		+ "L1 / Q  —  parry on Beat 1\n\n"
 		+ "D-pad / [ ]  adjust latency"
 	)
 	label.font_size = 14

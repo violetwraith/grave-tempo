@@ -61,7 +61,7 @@ func _apply_gravity(delta: float) -> void:
 
 
 func _handle_jump() -> void:
-	if is_on_floor() and not Input.is_action_pressed("parry_mode") and Input.is_action_just_pressed("jump"):
+	if is_on_floor() and Input.is_action_just_pressed("jump"):
 		velocity.y = JUMP_VELOCITY
 
 

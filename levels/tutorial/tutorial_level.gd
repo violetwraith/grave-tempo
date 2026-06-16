@@ -14,16 +14,12 @@ const DPAD_REPEAT_INTERVAL := 0.08  # seconds between repeat fires
 @onready var player: Player = $Player
 
 var _in_range: bool = false
-var _parry_mode_active: bool = false
 var _samples: Array[float] = []
 var _current_avg: float = 0.0
 
 var _ting_perfect_stream: AudioStream
-var _ting_ok_stream: AudioStream
+var _parry_response_stream: AudioStream
 
-# Predictive ting: a new AudioStreamPlayer is created each beat so confirmed tings
-# can ring out in full while the next beat's ting starts — they overlap freely.
-var _current_ting: AudioStreamPlayer = null
 var _ting_active: bool = false
 var _ting_beat_number: int = -1
 var _ting_confirmed: bool = false
@@ -40,17 +36,12 @@ func _ready() -> void:
 	metronome.player_exited_range.connect(func(): _in_range = false; _stop_ting())
 
 	_ting_perfect_stream = load("res://assets/audio/sfx/ting.mp3")
-	_ting_ok_stream = load("res://assets/audio/sfx/ting_alt.mp3")
+	_parry_response_stream = load("res://assets/audio/sfx/ting.mp3")
 
+	BeatClock.beat.connect(_on_beat)
 	BeatClock.pre_beat.connect(_on_pre_beat)
 
 	hud.update_calibration(0.0, GameSettings.audio_offset * 1000.0, false)
-
-
-func _fade_and_free(ting: AudioStreamPlayer) -> void:
-	var tween := create_tween()
-	tween.tween_property(ting, "volume_db", -80.0, 0.06)
-	tween.tween_callback(ting.queue_free)
 
 
 func _make_ting(stream: AudioStream) -> AudioStreamPlayer:
@@ -79,25 +70,19 @@ func _clear_misses() -> void:
 
 
 func _on_pre_beat(beat_number: int) -> void:
-	if not _in_range:
+	if not _in_range or beat_number % 4 != 0:
 		return
 
-	# Unconfirmed ting from last beat: cut it now.
-	# Confirmed ting: leave it ringing — it owns itself and frees on finish.
-	if _ting_active and not _ting_confirmed and _current_ting != null:
-		_fade_and_free(_current_ting)
-	_current_ting = null
-
+	# Attack sound rings out freely — no reference kept, no cutting on miss.
+	# The parry response (played on confirmed input) blends with this ring-out.
 	if _ting_enabled:
-		var stream := _ting_perfect_stream if beat_number % 4 == 0 else _ting_ok_stream
-		_current_ting = _make_ting(stream)
-		_current_ting.play()
+		_make_ting(_ting_perfect_stream).play()
 
 	_ting_active = true
 	_ting_beat_number = beat_number
-	# _ting_confirmed is NOT reset here. Godot processes input before _process, so a press in the 
-	# same frame as pre_beat fires would set it true and this reset would immediately wipe it. State
-	# is reset in _on_ting_window_expired/_stop_ting.
+	# _ting_confirmed is NOT reset here — race condition: Godot processes input before _process,
+	# so a same-frame press sets it true and a reset here would immediately wipe it.
+	# Reset only in _on_ting_window_expired / _stop_ting.
 
 	var window_close_delay := OK_THRESHOLD - GameSettings.audio_offset
 	var captured := beat_number
@@ -110,12 +95,9 @@ func _on_ting_window_expired(beat_number: int) -> void:
 	if _ting_beat_number != beat_number or not _ting_active:
 		return
 	if not _ting_confirmed:
-		_stop_ting()
-	else:
-		# Confirmed: release the ting to ring freely, close the window.
-		_current_ting = null
-		_ting_active = false
-		_ting_confirmed = false
+		hud.show_timing("Miss", Color(1.0, 0.3, 0.3))
+	_ting_active = false
+	_ting_confirmed = false
 
 
 func _reset() -> void:
@@ -131,21 +113,28 @@ func _reset() -> void:
 func _stop_ting() -> void:
 	_ting_active = false
 	_ting_confirmed = false
-	if _current_ting != null:
-		_fade_and_free(_current_ting)
-		_current_ting = null
+
+
+func _on_beat(beat_number: int) -> void:
+	if _in_range and beat_number % 4 == 3:
+		hud.show_windup()
+
+
+func _play_parry_response(dist: float) -> void:
+	var p := _make_ting(_parry_response_stream)
+	if dist > PERFECT_THRESHOLD:
+		# Late hit: pitch up and duck volume proportional to how late.
+		# The sharper, quieter sound resolves faster and blends into the attack ring-out.
+		var t := clampf((dist - PERFECT_THRESHOLD) / (OK_THRESHOLD - PERFECT_THRESHOLD), 0.0, 1.0)
+		p.pitch_scale = lerpf(1.0, 1.25, t)
+		p.volume_db = lerpf(-20.0, -25.0, t)
+	p.play()
 
 
 func _process(delta: float) -> void:
-	var active := Input.is_action_pressed("parry_mode") and _in_range
-	if active != _parry_mode_active:
-		_parry_mode_active = active
-		hud.set_parry_mode(active)
-
 	var dir := 0
-	if not _parry_mode_active:
-		if Input.is_action_pressed("offset_decrease"): dir = -1
-		elif Input.is_action_pressed("offset_increase"): dir = 1
+	if Input.is_action_pressed("offset_decrease"): dir = -1
+	elif Input.is_action_pressed("offset_increase"): dir = 1
 	if dir != 0:
 		if _dpad_timer < 0.0:
 			_adjust_offset_snapped(dir)
@@ -162,33 +151,19 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if _parry_mode_active:
-		if event.is_action_pressed("parry_top"):
-			_handle_parry_press(true)
-		elif event.is_action_pressed("parry_bottom"):
-			_handle_parry_press(false)
-		return
-
-	if event.is_action_pressed("reset_level"):
+	if event.is_action_pressed("parry"):
+		_handle_parry_press()
+	elif event.is_action_pressed("reset_level"):
 		_reset()
 	elif event.is_action_pressed("toggle_ting"):
 		_ting_enabled = not _ting_enabled
 		hud.set_ting_enabled(_ting_enabled)
 
 
-func _handle_parry_press(is_top: bool) -> void:
-	if _ting_active:
-		var expecting_top := _ting_beat_number % 4 == 0
-		if is_top != expecting_top:
-			_stop_ting()
-			_record_miss()
-			hud.show_timing("Wrong", Color(1.0, 0.2, 0.2))
-			return
-
-	if is_top:
-		_record_top_press()
-	else:
-		_record_bottom_press()
+func _handle_parry_press() -> void:
+	if not _in_range:
+		return
+	_record_top_press()
 
 
 func _record_top_press() -> void:
@@ -201,28 +176,6 @@ func _record_top_press() -> void:
 
 	var comp_bar_dist := fmod(BeatClock.get_beat_time() + bar_dur * 0.5, bar_dur) - bar_dur * 0.5
 	_show_timing(comp_bar_dist)
-
-
-func _record_bottom_press() -> void:
-	var beat_dur := BeatClock.beat_duration()
-	var bar_dur := beat_dur * 4.0
-
-	var comp_beat_dist := fmod(BeatClock.get_beat_time() + beat_dur * 0.5, beat_dur) - beat_dur * 0.5
-	_show_timing(comp_beat_dist)
-
-	if _samples.is_empty():
-		return
-
-	var raw_t := BeatClock.get_beat_time() + GameSettings.audio_offset
-
-	var bar_pos := fmod(raw_t - _current_avg + bar_dur * 4.0, bar_dur)
-	var m := roundi(bar_pos / beat_dur) % 4
-	if m == 0:
-		m = 1
-
-	var x_meas := fmod(raw_t + bar_dur * 4.0, bar_dur) - m * beat_dur
-	x_meas = fmod(x_meas + bar_dur * 1.5, bar_dur) - bar_dur * 0.5
-	_add_sample(x_meas)
 
 
 func _add_sample(x: float) -> void:
@@ -255,10 +208,12 @@ func _show_timing(dist: float) -> void:
 		hud.show_timing("Perfect!", Color(1.0, 0.9, 0.1))
 		_ting_confirmed = true
 		_clear_misses()
+		_play_parry_response(dist)
 	elif abs_dist <= effective_ok:
 		hud.show_timing("OK", Color(0.3, 1.0, 0.3))
 		_ting_confirmed = true
 		_clear_misses()
+		_play_parry_response(dist)
 	elif dist < 0.0:
 		hud.show_timing("Early", Color(1.0, 0.6, 0.2))
 		_record_miss()
