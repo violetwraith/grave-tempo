@@ -1,9 +1,9 @@
 extends Node3D
 class_name TutorialLevel
 
-const SAMPLE_COUNT := 10 # for calculated rolling average
-const PERFECT_THRESHOLD := 0.033 # 33ms, 2 frames in 60fps
-const OK_THRESHOLD := 0.10 # 100ms, 6 frammes in 60fps
+const SAMPLE_COUNT := 10 # for calculating rolling average
+const PERFECT_THRESHOLD := 0.066 # 4 frames in 60fps
+const OK_THRESHOLD := 0.20 # 12 frames in 60fps
 const MISS_DECAY_TIME := 0.5 # seconds before a miss penalty expires
 const PENALTY_PER_MISS := 0.033 # each recent miss shrinks the OK window
 const DPAD_INITIAL_DELAY := 0.4  # seconds held before auto-repeat starts
@@ -32,6 +32,7 @@ var _ting_confirmed: bool = false
 # MISS_DECAY_TIME seconds reduces the OK window by PENALTY_PER_MISS.
 var _recent_misses: Array[float] = []
 var _dpad_timer: float = -1.0
+var _ting_enabled: bool = false
 
 
 func _ready() -> void:
@@ -44,6 +45,12 @@ func _ready() -> void:
 	BeatClock.pre_beat.connect(_on_pre_beat)
 
 	hud.update_calibration(0.0, GameSettings.audio_offset * 1000.0, false)
+
+
+func _fade_and_free(ting: AudioStreamPlayer) -> void:
+	var tween := create_tween()
+	tween.tween_property(ting, "volume_db", -80.0, 0.06)
+	tween.tween_callback(ting.queue_free)
 
 
 func _make_ting(stream: AudioStream) -> AudioStreamPlayer:
@@ -78,13 +85,13 @@ func _on_pre_beat(beat_number: int) -> void:
 	# Unconfirmed ting from last beat: cut it now.
 	# Confirmed ting: leave it ringing — it owns itself and frees on finish.
 	if _ting_active and not _ting_confirmed and _current_ting != null:
-		_current_ting.stop()
-		_current_ting.queue_free()
+		_fade_and_free(_current_ting)
 	_current_ting = null
 
-	var stream := _ting_perfect_stream if beat_number % 4 == 0 else _ting_ok_stream
-	_current_ting = _make_ting(stream)
-	_current_ting.play()
+	if _ting_enabled:
+		var stream := _ting_perfect_stream if beat_number % 4 == 0 else _ting_ok_stream
+		_current_ting = _make_ting(stream)
+		_current_ting.play()
 
 	_ting_active = true
 	_ting_beat_number = beat_number
@@ -92,7 +99,7 @@ func _on_pre_beat(beat_number: int) -> void:
 	# same frame as pre_beat fires would set it true and this reset would immediately wipe it. State
 	# is reset in _on_ting_window_expired/_stop_ting.
 
-	var window_close_delay := GameSettings.audio_offset + OK_THRESHOLD
+	var window_close_delay := OK_THRESHOLD - GameSettings.audio_offset
 	var captured := beat_number
 	get_tree().create_timer(window_close_delay).timeout.connect(
 		func(): _on_ting_window_expired(captured)
@@ -125,8 +132,7 @@ func _stop_ting() -> void:
 	_ting_active = false
 	_ting_confirmed = false
 	if _current_ting != null:
-		_current_ting.stop()
-		_current_ting.queue_free()
+		_fade_and_free(_current_ting)
 		_current_ting = null
 
 
@@ -165,6 +171,9 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	if event.is_action_pressed("reset_level"):
 		_reset()
+	elif event.is_action_pressed("toggle_ting"):
+		_ting_enabled = not _ting_enabled
+		hud.set_ting_enabled(_ting_enabled)
 
 
 func _handle_parry_press(is_top: bool) -> void:

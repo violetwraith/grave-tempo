@@ -20,6 +20,20 @@ Suggested: -- ms
 Current: 0.0 ms
 [A] Apply  [D-pad / [ ]] +/-10ms"
 
+[node name="FPSLabel" type="Label" parent="."]
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -80.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = 40.0
+theme_override_font_sizes/font_size = 14
+theme_override_colors/font_color = Color(1, 1, 1, 0.6)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.85)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+horizontal_alignment = 2
+
 [node name="TimingLabel" type="Label" parent="."]
 anchor_left = 0.5
 anchor_top = 0.5

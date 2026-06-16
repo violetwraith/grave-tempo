@@ -16,6 +16,7 @@ var _last_beat: int = -1
 var _last_half_beat: int = -1
 var _last_pre_beat: int = -1
 var _clock_start: float = -1.0
+var _last_time: float = 0.0
 
 
 func start_clock() -> void:
@@ -23,16 +24,24 @@ func start_clock() -> void:
 
 
 func get_beat_time() -> float:
+	var t: float
 	if music_player != null and music_player.playing:
-		return (
+		t = (
 			music_player.get_playback_position()
 			+ AudioServer.get_time_since_last_mix()
 			- AudioServer.get_output_latency()
 			- GameSettings.audio_offset
 		)
-	if _clock_start >= 0.0:
-		return Time.get_ticks_usec() / 1_000_000.0 - _clock_start - GameSettings.audio_offset
-	return -1.0
+	elif _clock_start >= 0.0:
+		t = Time.get_ticks_usec() / 1_000_000.0 - _clock_start - GameSettings.audio_offset
+	else:
+		return -1.0
+	# Suppress backward jitter from audio thread timing. A large backward jump
+	# (>100ms) is a genuine restart/seek, not jitter — let it through.
+	if t < _last_time and _last_time - t < 0.1:
+		t = _last_time
+	_last_time = t
+	return t
 
 
 func get_beat_phase() -> float:
