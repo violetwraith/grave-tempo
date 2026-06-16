@@ -14,10 +14,24 @@ var _last_suggested_ms: float = 0.0
 var _last_current_ms: float = 0.0
 var _has_samples: bool = false
 var _ting_enabled: bool = false
+var _using_controller: bool = false
 
 
 func _ready() -> void:
+	Input.joy_connection_changed.connect(func(_device, _connected): _refresh_label())
+	_using_controller = not Input.get_connected_joypads().is_empty()
 	_refresh_label()
+
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventJoypadButton or event is InputEventJoypadMotion:
+		if not _using_controller:
+			_using_controller = true
+			_refresh_label()
+	elif event is InputEventKey or event is InputEventMouseButton or event is InputEventMouseMotion:
+		if _using_controller:
+			_using_controller = false
+			_refresh_label()
 
 
 func _process(_delta: float) -> void:
@@ -78,14 +92,30 @@ func show_timing(result: String, color: Color) -> void:
 
 func _refresh_label() -> void:
 	var calib: String
+	var offset_keys: String = "D-pad" if _using_controller else "[ ]"
 	if _has_samples:
-		calib = "\nSuggested: %.1f ms     Current: %.1f ms\n[D-pad / [ ]] ±10ms" % [_last_suggested_ms, _last_current_ms]
+		calib = "Suggested: %.1f ms     Current: %.1f ms\n[%s] ±10ms" % [_last_suggested_ms, _last_current_ms, offset_keys]
 	else:
-		calib = "\nCurrent: %.1f ms   [D-pad / [ ]] ±10ms" % _last_current_ms
+		calib = "Current: %.1f ms   [%s] ±10ms" % [_last_current_ms, offset_keys]
 
-	var ting_line := "\nX / V: ting %s" % ("on" if _ting_enabled else "off")
-	offset_label.text = (
-		"Left Stick / WASD: Move\nRight Stick / Mouse: Camera\nStart / R: reset"
-		+ ting_line + "\nY / T: toggle dummy move"
-		+ "\nL1 / Q: parry  |  R1 / E: attack" + calib
-	)
+	var controls: String
+	if _using_controller:
+		var ting_line := "X: ting %s" % ("on" if _ting_enabled else "off")
+		controls = (
+			"L-Stick: Move  |  R-Stick: Camera\n"
+			+ "Start: Reset  |  R3: Lock on\n"
+			+ "L1: Parry  |  R1: Quick attack  |  R2: Charge attack\n"
+			+ ting_line + "  |  Y: Toggle move\n"
+			+ "Tip: R1 or R2↑ while holding L1 = extra parry"
+		)
+	else:
+		var ting_line := "V: ting %s" % ("on" if _ting_enabled else "off")
+		controls = (
+			"WASD: Move  |  Mouse: Camera\n"
+			+ "R: Reset  |  F: Lock on\n"
+			+ "Q: Parry  |  E: Quick attack  |  C: Charge attack\n"
+			+ ting_line + "  |  T: Toggle move\n"
+			+ "Tip: E or C (release) while holding Q = extra parry"
+		)
+
+	offset_label.text = controls + "\n" + calib

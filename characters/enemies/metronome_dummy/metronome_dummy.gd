@@ -183,5 +183,5 @@ func _draw_ground_instructions() -> void:
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	label.billboard = BaseMaterial3D.BILLBOARD_DISABLED
 	label.rotation_degrees.x = -90.0
-	get_parent().add_child(label)
-	label.global_position = global_position + Vector3(-0.9, 0.08, RANGE_RADIUS + 1.0)
+	label.position = global_position + Vector3(-0.9, 0.08, RANGE_RADIUS + 1.0)
+	get_parent().add_child.call_deferred(label)
