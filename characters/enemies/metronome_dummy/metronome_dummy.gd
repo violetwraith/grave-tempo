@@ -1,4 +1,4 @@
-extends StaticBody3D
+extends BaseEnemy
 class_name MetronomeDummy
 
 signal player_entered_range
@@ -16,8 +16,12 @@ var _attack_ring_inst: MeshInstance3D = null
 var _attack_ring_outline_mat: StandardMaterial3D = null
 var _attack_ring_outline_inst: MeshInstance3D = null
 
+var _posture_break_stream: AudioStream = null
+var _kill_stream: AudioStream = null
+
 
 func _ready() -> void:
+	super._ready()
 	detection_zone.body_entered.connect(_on_body_entered)
 	detection_zone.body_exited.connect(_on_body_exited)
 	body_zone.body_entered.connect(_on_body_zone_entered)
@@ -25,11 +29,18 @@ func _ready() -> void:
 	audio.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_SQUARE_DISTANCE
 	audio.unit_size = 4.0
 	audio.max_distance = 30.0
-
 	audio.finished.connect(func(): audio.play())
-
 	audio.play()
 	BeatClock.music_player = audio
+
+	_posture_break_stream = load("res://assets/audio/sfx/posture_break.mp3") \
+		if ResourceLoader.exists("res://assets/audio/sfx/posture_break.mp3") else null
+	_kill_stream = load("res://assets/audio/sfx/kill.mp3") \
+		if ResourceLoader.exists("res://assets/audio/sfx/kill.mp3") else null
+
+	posture_broke.connect(func():
+		if _posture_break_stream:
+			_play_sfx(_posture_break_stream, -10.0))
 
 	_setup_attack_ring()
 	_draw_ground_instructions()
@@ -37,6 +48,31 @@ func _ready() -> void:
 	for body in detection_zone.get_overlapping_bodies():
 		if body is Player:
 			player_entered_range.emit()
+
+
+func _on_kill(_with_ragdoll: bool) -> void:
+	stop_audio()
+	disable_collision()
+	hide_attack_ring()
+	visible = false
+	if _kill_stream:
+		_play_sfx(_kill_stream)
+
+
+func _on_reset() -> void:
+	enable_collision()
+	restart_audio()
+	hide_attack_ring()
+	BeatClock.music_player = audio
+
+
+func _do_spawn_ragdoll() -> void:
+	_spawn_ragdoll_body(
+		base_pos,
+		kb_vel + Vector3(0.0, fall_vel, 0.0),
+		Vector3(0.5, 1.2, 0.5),
+		Color(0.55, 0.35, 0.15)
+	)
 
 
 func restart_audio() -> void:
@@ -51,9 +87,8 @@ func stop_audio() -> void:
 func update_attack_ring(progress: float, direction: Vector3) -> void:
 	var radius := clampf(progress, 0.0, 1.0) * RANGE_RADIUS
 	var angle := atan2(direction.x, direction.z)
-	var half_arc := PI / 2.0  # ±90° = 180° total
+	var half_arc := PI / 2.0
 
-	# Fill: growing half-disc
 	var fill_mesh := ImmediateMesh.new()
 	fill_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES, _attack_ring_mat)
 	for i in range(48):
@@ -66,7 +101,6 @@ func update_attack_ring(progress: float, direction: Vector3) -> void:
 	_attack_ring_inst.mesh = fill_mesh
 	_attack_ring_inst.visible = radius > 0.01
 
-	# Outline: constant 180° wedge boundary (center → arc → center)
 	var outline_mesh := ImmediateMesh.new()
 	outline_mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP, _attack_ring_outline_mat)
 	outline_mesh.surface_add_vertex(Vector3(0.0, 0.02, 0.0))
@@ -149,24 +183,5 @@ func _draw_ground_instructions() -> void:
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	label.billboard = BaseMaterial3D.BILLBOARD_DISABLED
 	label.rotation_degrees.x = -90.0
-	# Parent to the level so it stays fixed when the dummy moves
 	get_parent().add_child(label)
 	label.global_position = global_position + Vector3(-0.9, 0.08, RANGE_RADIUS + 1.0)
-
-
-func _draw_range_circle() -> void:
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.albedo_color = Color(1.0, 0.85, 0.1, 1.0)
-
-	var mesh := ImmediateMesh.new()
-	mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP, mat)
-	var segments := 64
-	for i in range(segments + 1):
-		var angle := float(i) / segments * TAU
-		mesh.surface_add_vertex(Vector3(cos(angle) * RANGE_RADIUS, 0.01, sin(angle) * RANGE_RADIUS))
-	mesh.surface_end()
-
-	var mi := MeshInstance3D.new()
-	mi.mesh = mesh
-	add_child(mi)
