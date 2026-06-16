@@ -1,0 +1,47 @@
+[gd_scene format=3 uid="uid://dsglka05al0ia"]
+
+[ext_resource type="Script" uid="uid://cqoqayn07gawq" path="res://levels/tutorial/tutorial_level.gd" id="1"]
+[ext_resource type="PackedScene" path="res://characters/player/player.tscn" id="2"]
+[ext_resource type="PackedScene" path="res://characters/enemies/metronome_dummy/metronome_dummy.tscn" id="3"]
+[ext_resource type="PackedScene" path="res://ui/hud/hud.tscn" id="4"]
+
+[sub_resource type="Environment" id="Environment_1"]
+ambient_light_source = 2
+ambient_light_color = Color(0.8, 0.8, 0.9, 1)
+ambient_light_energy = 0.4
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_1"]
+size = Vector3(40, 0.2, 40)
+
+[sub_resource type="BoxMesh" id="BoxMesh_1"]
+size = Vector3(40, 0.2, 40)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_1"]
+albedo_color = Color(0.3, 0.3, 0.35, 1)
+
+[node name="TutorialLevel" type="Node3D" unique_id=49552352]
+script = ExtResource("1")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=399401369]
+environment = SubResource("Environment_1")
+
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=2121129019]
+transform = Transform3D(0.87758255, -0.34391883, 0.334019, 0, 0.6967067, 0.7173561, -0.47942555, -0.6295392, 0.61141765, 0, 0, 0)
+light_energy = 1.2
+
+[node name="Floor" type="StaticBody3D" parent="." unique_id=1438204103]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.1, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Floor" unique_id=600597244]
+shape = SubResource("BoxShape3D_1")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Floor" unique_id=1602238858]
+mesh = SubResource("BoxMesh_1")
+surface_material_override/0 = SubResource("StandardMaterial3D_1")
+
+[node name="Player" parent="." unique_id=1340287806 instance=ExtResource("2")]
+
+[node name="MetronomeDummy" parent="." unique_id=502902331 instance=ExtResource("3")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -6)
+
+[node name="HUD" parent="." unique_id=1313068065 instance=ExtResource("4")]

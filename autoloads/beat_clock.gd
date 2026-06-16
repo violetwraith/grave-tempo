@@ -1,0 +1,71 @@
+extends Node
+
+signal beat(beat_number: int)
+signal half_beat(beat_number: int)
+
+# Fires when the beat click enters the hardware output buffer — audio_offset seconds before the 
+# audible beat. Connect SFX here so they travel through the audio stack in sync with the click and
+# arrive at the player's ears at the same moment.
+signal pre_beat(beat_number: int)
+
+var bpm: float = 120.0
+var music_player: Node = null # AudioStreamPlayer or AudioStreamPlayer3D?
+
+# init at -1 so logic starts on frame 0
+var _last_beat: int = -1
+var _last_half_beat: int = -1
+var _last_pre_beat: int = -1
+var _clock_start: float = -1.0
+
+
+func start_clock() -> void:
+	_clock_start = Time.get_ticks_usec() / 1_000_000.0
+
+
+func get_beat_time() -> float:
+	if music_player != null and music_player.playing:
+		return (
+			music_player.get_playback_position()
+			+ AudioServer.get_time_since_last_mix()
+			- AudioServer.get_output_latency()
+			- GameSettings.audio_offset
+		)
+	if _clock_start >= 0.0:
+		return Time.get_ticks_usec() / 1_000_000.0 - _clock_start - GameSettings.audio_offset
+	return -1.0
+
+
+func get_beat_phase() -> float:
+	return fmod(get_beat_time(), beat_duration()) / beat_duration()
+
+
+func get_beat_number() -> int:
+	return int(get_beat_time() / beat_duration())
+
+
+func beat_duration() -> float:
+	return 60.0 / bpm
+
+
+func _process(_delta: float) -> void:
+	var t := get_beat_time()
+	if t < 0.0:
+		return
+	var bd := beat_duration()
+	var current_beat := int(t / bd)
+	var current_half_beat := int(t / (bd * 0.5))
+	if current_beat != _last_beat:
+		_last_beat = current_beat
+		beat.emit(current_beat)
+	if current_half_beat != _last_half_beat:
+		_last_half_beat = current_half_beat
+		half_beat.emit(current_half_beat)
+
+	# pre_beat uses the raw (hardware-buffer) clock: get_beat_time + audio_offset.
+	# This fires audio_offset seconds ahead of the audible beat so that SFX connected here enter the
+	# output pipeline in sync with the beat click.
+	var raw_t := t + GameSettings.audio_offset
+	var current_pre_beat := int(raw_t / bd)
+	if current_pre_beat != _last_pre_beat:
+		_last_pre_beat = current_pre_beat
+		pre_beat.emit(current_pre_beat)
