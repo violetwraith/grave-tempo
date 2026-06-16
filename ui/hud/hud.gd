@@ -4,6 +4,10 @@ class_name HUD
 @onready var offset_label: Label = $OffsetLabel
 @onready var timing_label: Label = $TimingLabel
 @onready var fps_label: Label = $FPSLabel
+@onready var hp_label: Label = $HPLabel
+@onready var combo_label: Label = $ComboLabel
+
+const _MAX_HP := 3
 
 var _timing_show_id: int = 0
 var _last_suggested_ms: float = 0.0
@@ -30,6 +34,24 @@ func update_calibration(suggested_ms: float, current_offset_ms: float, has_sampl
 func set_ting_enabled(enabled: bool) -> void:
 	_ting_enabled = enabled
 	_refresh_label()
+
+
+func update_hp(hp: int) -> void:
+	hp_label.text = "♥".repeat(hp) + "♡".repeat(_MAX_HP - hp)
+
+
+func update_combo(combo: int) -> void:
+	combo_label.text = ("× %d" % combo) if combo > 0 else ""
+
+
+func show_dead() -> void:
+	_timing_show_id += 1
+	timing_label.text = "You Died"
+	timing_label.modulate = Color(0.8, 0.1, 0.1)
+
+
+func clear_dead() -> void:
+	timing_label.text = ""
 
 
 func show_windup() -> void:
@@ -64,5 +86,6 @@ func _refresh_label() -> void:
 	var ting_line := "\nX / V: ting %s" % ("on" if _ting_enabled else "off")
 	offset_label.text = (
 		"Left Stick / WASD: Move\nRight Stick / Mouse: Camera\nStart / R: reset"
-		+ ting_line + "\nL1 / Q: parry on Beat 1" + calib
+		+ ting_line + "\nY / T: toggle dummy move"
+		+ "\nL1 / Q: parry  |  R1 / E: attack" + calib
 	)

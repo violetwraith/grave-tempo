@@ -35,3 +35,9 @@ volume_db = 10.0
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="DetectionZone"]
 shape = SubResource("SphereShape3D_1")
+
+[node name="BodyZone" type="Area3D" parent="."]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="BodyZone"]
+position = Vector3(0, 0.6, 0)
+shape = SubResource("BoxShape3D_1")

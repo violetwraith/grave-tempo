@@ -8,7 +8,7 @@ signal half_beat(beat_number: int)
 # arrive at the player's ears at the same moment.
 signal pre_beat(beat_number: int)
 
-var bpm: float = 120.0
+var bpm: float = 60.0
 var music_player: Node = null # AudioStreamPlayer or AudioStreamPlayer3D?
 
 # init at -1 so logic starts on frame 0
@@ -21,6 +21,15 @@ var _last_time: float = 0.0
 
 func start_clock() -> void:
 	_clock_start = Time.get_ticks_usec() / 1_000_000.0
+
+
+func detach_music() -> void:
+	if music_player == null:
+		return
+	# Capture current beat time, then hand off to wall clock at same position
+	var t := get_beat_time()
+	music_player = null
+	_clock_start = Time.get_ticks_usec() / 1_000_000.0 - t - GameSettings.audio_offset
 
 
 func get_beat_time() -> float:
