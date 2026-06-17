@@ -13,6 +13,8 @@ const CAMERA_PITCH_MIN := -50.0
 const CAMERA_PITCH_MAX := 25.0
 const ROTATION_SPEED := 10.0
 const BLINK_INTERVAL := 0.07
+const DASH_SPEED := 16.0
+const DASH_DURATION := 0.22
 
 @onready var camera: Camera3D = $Camera3D
 @onready var _mesh: MeshInstance3D = $Mesh
@@ -27,6 +29,9 @@ var _iframe: bool = false
 var _blink_timer: float = 0.0
 var _attack_charging: bool = false
 var _dead: bool = false
+var _dashing: bool = false
+var _dash_timer: float = 0.0
+var _dash_dir: Vector3 = Vector3.ZERO
 
 
 func _ready() -> void:
@@ -40,8 +45,12 @@ func reset() -> void:
 	_iframe = false
 	_attack_charging = false
 	_dead = false
+	_dashing = false
 	_mesh.visible = true
 	lock_on_target = null
+	_camera_yaw = 0.0
+	_camera_pitch = -15.0
+	_target_yaw = 0.0
 
 
 func set_attack_charging(value: bool) -> void:
@@ -54,6 +63,14 @@ func set_dead(value: bool) -> void:
 
 func hide_mesh() -> void:
 	_mesh.visible = false
+
+
+func start_dash(direction: Vector3) -> void:
+	_dashing = true
+	_dash_timer = 0.0
+	var flat := Vector3(direction.x, 0.0, direction.z)
+	_dash_dir = flat.normalized() if flat.length_squared() > 0.001 else \
+		(global_transform.basis * Vector3(0.0, 0.0, -1.0)).normalized()
 
 
 func apply_knockback(direction: Vector3, speed: float) -> void:
@@ -86,6 +103,7 @@ func _physics_process(delta: float) -> void:
 	_apply_gravity(delta)
 	_handle_jump()
 	_handle_controller_camera(delta)
+	_update_dash(delta)
 	_handle_movement(delta)
 	_rotate_toward_movement(delta)
 	move_and_slide()
@@ -110,19 +128,31 @@ func _handle_jump() -> void:
 		velocity.y = JUMP_VELOCITY
 
 
+func _update_dash(delta: float) -> void:
+	if not _dashing:
+		return
+	_dash_timer += delta
+	if _dash_timer >= DASH_DURATION:
+		_dashing = false
+
+
 func _handle_movement(_delta: float) -> void:
 	if _dead:
 		velocity.x = 0.0
 		velocity.z = 0.0
+		return
+	if _dashing:
+		velocity.x = _dash_dir.x * DASH_SPEED
+		velocity.z = _dash_dir.z * DASH_SPEED
 		return
 	var stick := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	if _attack_charging:
 		velocity.x = 0.0
 		velocity.z = 0.0
 		if stick.length_squared() > 0.01:
-			var cam_basis := Basis(Vector3.UP, deg_to_rad(_camera_yaw))
-			var direction := (cam_basis * Vector3(stick.x, 0.0, stick.y)).normalized()
-			_target_yaw = atan2(-direction.x, -direction.z)
+			var cb := Basis(Vector3.UP, deg_to_rad(_camera_yaw))
+			var fwd := (cb * Vector3(stick.x, 0.0, stick.y)).normalized()
+			_target_yaw = atan2(-fwd.x, -fwd.z)
 		return
 	if stick.length_squared() < 0.01:
 		velocity.x = 0.0

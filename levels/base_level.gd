@@ -8,7 +8,7 @@ const MISS_DECAY_TIME := 0.5
 const PENALTY_PER_MISS := 0.033
 const DPAD_INITIAL_DELAY := 0.4
 const DPAD_REPEAT_INTERVAL := 0.08
-const MAX_HP := 3
+const MAX_HP := 3  # default player max HP; levels override _max_player_hp()
 const ENEMY_WINDUP_BEATS := 1
 
 const PLAYER_CONTACT_KB := 3.5
@@ -22,6 +22,15 @@ const ATTACK_PRECISION_OK: float = 1.0
 const ATTACK_PRECISION_MISS: float = 0.1
 const ATTACK_MAX_CHARGE_BEATS := 3.0
 const CRIT_DAMAGE_MULT: float = 3.0
+
+# Radius of the player's parry reach. A parry connects when this circle (drawn under
+# the player while a parry window is open) overlaps the enemy's red attack indicator.
+const PARRY_RANGE := 2.5
+# How long the blue parry-range circle stays visible after the player presses parry.
+const PARRY_ACTIVE_SECS := 0.18
+# Reach of the player's melee attack — the radius drawn as the charge/quick attack
+# indicator border. An enemy is hittable only inside this arc.
+const PLAYER_ATTACK_RANGE := 3.5
 
 @onready var hud: HUD = $HUD
 @onready var player: Player = $Player
@@ -59,6 +68,8 @@ var _player_iframe_start_bt: float = -1.0
 var _player_ragdoll: RigidBody3D = null
 
 var _locked_on: bool = false
+var _dash_iframe: bool = false
+var _parry_visual_until_ms: float = -1.0
 
 var _player_range_ring_inst: MeshInstance3D = null
 var _player_attack_ring_inst: MeshInstance3D = null
@@ -66,6 +77,9 @@ var _player_attack_ring_mat: StandardMaterial3D = null
 var _player_arc_outline_mat: StandardMaterial3D = null
 var _player_iframe_ring_inst: MeshInstance3D = null
 var _player_iframe_ring_mat: StandardMaterial3D = null
+var _player_parry_ring_inst: MeshInstance3D = null
+var _player_parry_fill_mat: StandardMaterial3D = null
+var _player_parry_outline_mat: StandardMaterial3D = null
 
 
 func _ready() -> void:
@@ -82,10 +96,18 @@ func _ready() -> void:
 
 	_setup_player_rings()
 	_setup_iframe_ring()
+	_setup_parry_ring()
 
+	_player_hp = _max_player_hp()
 	hud.update_calibration(0.0, GameSettings.audio_offset * 1000.0, false)
-	hud.update_hp(MAX_HP)
+	hud.set_max_hp(_max_player_hp())
+	hud.update_hp(_player_hp)
 	hud.update_combo(0)
+
+
+# Player max HP for this level. Override to change it (e.g. the boss arena).
+func _max_player_hp() -> int:
+	return MAX_HP
 
 
 func _get_current_target() -> BaseEnemy:
@@ -114,6 +136,9 @@ func _process(delta: float) -> void:
 	else:
 		_dpad_timer = -1.0
 
+	# Parry ring runs on wall-clock time so it stays correct even while music is detached.
+	_update_parry_ring()
+
 	var bt := BeatClock.get_beat_time()
 	if bt < 0.0:
 		return
@@ -133,6 +158,17 @@ func _process(delta: float) -> void:
 		target.set_lock_on_highlighted(_locked_on)
 		target.force_show_hp_bar = _locked_on
 		target.tracked_position = player.global_position
+
+	# Dash iframe bar progress
+	if _dash_iframe:
+		if _player_iframe:
+			var total_if := _player_iframe_until_bt - _player_iframe_start_bt
+			var elapsed_if := bt - _player_iframe_start_bt
+			var progress := clampf(1.0 - elapsed_if / maxf(total_if, 0.001), 0.0, 1.0)
+			hud.update_iframe_bar(progress)
+		else:
+			_dash_iframe = false
+			hud.update_iframe_bar(0.0)
 
 	# Expire iframes
 	if _player_iframe and bt >= _player_iframe_until_bt:
@@ -174,7 +210,7 @@ func _process(delta: float) -> void:
 		pfwd = pfwd.normalized() if pfwd.length_squared() > 0.001 else Vector3(0.0, 0.0, -1.0)
 		var arc_center := atan2(pfwd.x, pfwd.z)
 		var half_arc := PI / 6.0
-		var R := MetronomeDummy.RANGE_RADIUS
+		var R := PLAYER_ATTACK_RANGE
 		var bd_vis := BeatClock.beat_duration()
 		var fill_radius: float
 		if _attack_active:
@@ -210,7 +246,7 @@ func _process(delta: float) -> void:
 		_player_attack_ring_inst.visible = false
 
 
-func _on_beat(beat_number: int) -> void:
+func _on_beat(_beat_number: int) -> void:
 	if _player_dead:
 		return
 	if _quick_attack_pending:
@@ -243,18 +279,14 @@ func _on_ting_window_expired(beat_number: int) -> void:
 		_ting_active = false
 		_ting_confirmed = false
 		return
-	if not _ting_confirmed:
+	if not _ting_confirmed and _player_in_attack_sector():
 		var target_pos := target.base_pos if target != null else Vector3.ZERO
 		var to_player := player.global_position - target_pos
 		to_player.y = 0.0
-		var in_arc := true
-		if to_player.length_squared() > 0.001:
-			in_arc = _get_attack_dir().dot(to_player.normalized()) >= 0.0
-		if in_arc:
-			hud.show_timing("Miss", Color(1.0, 0.3, 0.3))
-			var kb_dir := to_player.normalized() if to_player.length_squared() > 0.001 else Vector3.ZERO
-			_take_damage(kb_dir, PLAYER_ATTACK_KB)
-			_break_combo()
+		hud.show_timing("Miss", Color(1.0, 0.3, 0.3))
+		var kb_dir := to_player.normalized() if to_player.length_squared() > 0.001 else Vector3.ZERO
+		_take_damage(kb_dir, PLAYER_ATTACK_KB)
+		_break_combo()
 	_ting_active = false
 	_ting_confirmed = false
 	_enemy_hit_time_bt = -1.0
@@ -294,6 +326,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_handle_parry_press()
 		else:
 			_release_player_attack()
+	elif event.is_action_pressed("dash"):
+		_handle_dash_press()
 	elif event.is_action_pressed("reset_level"):
 		_reset()
 	elif event.is_action_pressed("lock_on"):
@@ -318,10 +352,107 @@ func _handle_extra_input(_event: InputEvent) -> void:
 	pass
 
 
+func _handle_dash_press() -> void:
+	if _player_dead or _player_iframe:
+		return
+	var h_vel := Vector3(player.velocity.x, 0.0, player.velocity.z)
+	var dash_dir: Vector3
+	if h_vel.length_squared() > 0.25:
+		dash_dir = h_vel.normalized()
+	else:
+		var fwd := player.global_transform.basis * Vector3(0.0, 0.0, -1.0)
+		fwd.y = 0.0
+		dash_dir = fwd.normalized() if fwd.length_squared() > 0.001 else Vector3(0.0, 0.0, -1.0)
+	player.start_dash(dash_dir)
+	_player_iframe = true
+	var bt := BeatClock.get_beat_time()
+	var iframe_secs := Player.DASH_DURATION + 0.06
+	_player_iframe_start_bt = bt
+	_player_iframe_until_bt = bt + iframe_secs
+	_dash_iframe = true
+	player.start_iframe()
+	hud.update_iframe_bar(1.0)
+
+
 func _handle_parry_press() -> void:
-	if not _in_range:
+	# The parry always activates (and shows its ring) on press, even with no enemy near.
+	_trigger_parry_visual()
+	# Not near an enemy, or a telegraphed attack the parry can't reach → false parry.
+	if not _in_range or (_ting_active and not _parry_circle_overlaps_attack()):
+		_register_false_parry()
 		return
 	_record_top_press()
+
+
+# Show the blue parry-range circle for a short active window after a press.
+func _trigger_parry_visual() -> void:
+	_parry_visual_until_ms = float(Time.get_ticks_msec()) + PARRY_ACTIVE_SECS * 1000.0
+
+
+# A mistimed / out-of-reach parry. Normally costs the combo, but not during the
+# post-posture-break window where the player is mashing through an attack chain.
+func _register_false_parry() -> void:
+	if _combo_protected():
+		return
+	hud.show_timing("False Parry", Color(1.0, 0.3, 0.3))
+	_break_combo()
+
+
+# Half-angle of the current attack indicator's arc. PI = full 360° attack.
+func _get_attack_half_arc() -> float:
+	return PI / 2.0
+
+
+# True if the player's parry circle (PARRY_RANGE) overlaps the active attack sector.
+# This is the standard parry-reach rule shared by every level.
+func _parry_circle_overlaps_attack() -> bool:
+	var target := _get_current_target()
+	if target == null:
+		return false
+	var to_player := player.global_position - target.base_pos
+	to_player.y = 0.0
+	var d := to_player.length()
+	if d > target.get_attack_radius() + PARRY_RANGE:
+		return false
+	var half_arc := _get_attack_half_arc()
+	if half_arc >= PI or d < 0.001:
+		return true
+	var ang := acos(clampf(_get_attack_dir().dot(to_player / d), -1.0, 1.0))
+	# The parry circle widens the angular reach by the angle it subtends at distance d.
+	var ang_margin := asin(clampf(PARRY_RANGE / maxf(d, PARRY_RANGE), 0.0, 1.0))
+	return ang <= half_arc + ang_margin
+
+
+# True if the player's body sits inside the active attack sector (used for taking damage).
+func _player_in_attack_sector() -> bool:
+	var target := _get_current_target()
+	if target == null:
+		return false
+	var to_player := player.global_position - target.base_pos
+	to_player.y = 0.0
+	var d := to_player.length()
+	if d > target.get_attack_radius():
+		return false
+	var half_arc := _get_attack_half_arc()
+	if half_arc >= PI or d < 0.001:
+		return true
+	return _get_attack_dir().dot(to_player / d) >= cos(half_arc)
+
+
+# True if an enemy sits inside the player's melee attack arc (PLAYER_ATTACK_RANGE, ±30°).
+func _target_in_attack_reach(target: BaseEnemy) -> bool:
+	if target == null:
+		return false
+	var to_target := target.base_pos - player.global_position
+	to_target.y = 0.0
+	if to_target.length_squared() < 0.01:
+		return true
+	if to_target.length() > PLAYER_ATTACK_RANGE:
+		return false
+	var fwd := player.global_transform.basis * Vector3(0.0, 0.0, -1.0)
+	fwd.y = 0.0
+	fwd = fwd.normalized() if fwd.length_squared() > 0.001 else Vector3(0.0, 0.0, -1.0)
+	return fwd.dot(to_target.normalized()) >= cos(PI / 6.0)
 
 
 func _cancel_player_attack() -> void:
@@ -360,14 +491,7 @@ func _fire_quick_attack() -> void:
 	if target == null or target.dead or not _in_range:
 		_break_combo()
 		return
-	var player_fwd := player.global_transform.basis * Vector3(0.0, 0.0, -1.0)
-	player_fwd.y = 0.0
-	player_fwd = player_fwd.normalized() if player_fwd.length_squared() > 0.001 else Vector3(0.0, 0.0, -1.0)
-	var to_target := target.base_pos - player.global_position
-	to_target.y = 0.0
-	var facing := to_target.length_squared() < 0.01 or \
-		player_fwd.dot(to_target.normalized()) >= cos(PI / 6.0)
-	if not facing:
+	if not _target_in_attack_reach(target):
 		_break_combo()
 		return
 	var damage := 1.0
@@ -426,17 +550,8 @@ func _release_player_attack() -> void:
 	hud.update_combo(0)
 
 	var target := _get_current_target()
-	var player_fwd := player.global_transform.basis * Vector3(0.0, 0.0, -1.0)
-	player_fwd.y = 0.0
-	player_fwd = player_fwd.normalized() if player_fwd.length_squared() > 0.001 else Vector3(0.0, 0.0, -1.0)
-	var facing_target := false
-	var target_dead := true
-	if target != null:
-		var to_target := target.base_pos - player.global_position
-		to_target.y = 0.0
-		facing_target = to_target.length_squared() < 0.01 or \
-			player_fwd.dot(to_target.normalized()) >= cos(PI / 6.0)
-		target_dead = target.dead
+	var facing_target := target != null and _target_in_attack_reach(target)
+	var target_dead := target.dead if target != null else true
 
 	var is_clash := _ting_active and not _ting_confirmed and _in_range and facing_target and not target_dead
 
@@ -521,11 +636,14 @@ func _reset() -> void:
 	_attack_start_bt = -1.0
 	_enemy_hit_time_bt = -1.0
 	_combo = 0
-	_player_hp = MAX_HP
+	_player_hp = _max_player_hp()
 	_player_dead = false
 	_player_iframe = false
 	_player_iframe_until_bt = -1.0
 	_player_iframe_start_bt = -1.0
+	_dash_iframe = false
+	_parry_visual_until_ms = -1.0
+	hud.update_iframe_bar(0.0)
 	_in_range = false
 	_locked_on = false
 	player.lock_on_target = null
@@ -535,8 +653,10 @@ func _reset() -> void:
 	_player_range_ring_inst.visible = false
 	_player_attack_ring_inst.visible = false
 	_player_iframe_ring_inst.visible = false
+	_player_parry_ring_inst.visible = false
 	hud.update_calibration(0.0, GameSettings.audio_offset * 1000.0, false)
-	hud.update_hp(MAX_HP)
+	hud.set_max_hp(_max_player_hp())
+	hud.update_hp(_player_hp)
 	hud.update_combo(0)
 	hud.clear_dead()
 
@@ -702,13 +822,22 @@ func _show_parry_timing(dist: float) -> void:
 	elif dist < 0.0:
 		hud.show_timing("Early", Color(1.0, 0.6, 0.2))
 		_record_miss()
-		_break_combo()
+		if not _combo_protected():
+			_break_combo()
 		_stop_ting()
 	else:
 		hud.show_timing("Late", Color(1.0, 0.6, 0.2))
 		_record_miss()
-		_break_combo()
+		if not _combo_protected():
+			_break_combo()
 		_stop_ting()
+
+
+# True while the player is mid-punish on a posture-broken enemy: mistimed/false parries
+# should not cost the combo before the player lands the critical hit.
+func _combo_protected() -> bool:
+	var target := _get_current_target()
+	return target != null and target.posture_broken
 
 
 func _setup_player_rings() -> void:
@@ -735,3 +864,43 @@ func _setup_iframe_ring() -> void:
 	_player_iframe_ring_inst = MeshInstance3D.new()
 	_player_iframe_ring_inst.visible = false
 	add_child(_player_iframe_ring_inst)
+
+
+func _setup_parry_ring() -> void:
+	_player_parry_fill_mat = StandardMaterial3D.new()
+	_player_parry_fill_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_player_parry_fill_mat.albedo_color = Color(0.25, 0.55, 1.0, 0.16)
+	_player_parry_fill_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_player_parry_outline_mat = StandardMaterial3D.new()
+	_player_parry_outline_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_player_parry_outline_mat.albedo_color = Color(0.45, 0.78, 1.0, 0.95)
+	_player_parry_outline_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_player_parry_ring_inst = MeshInstance3D.new()
+	_player_parry_ring_inst.visible = false
+	add_child(_player_parry_ring_inst)
+
+
+func _update_parry_ring() -> void:
+	# Only visible while the player's parry is actually active (just after a press).
+	if float(Time.get_ticks_msec()) >= _parry_visual_until_ms:
+		_player_parry_ring_inst.visible = false
+		return
+	var mesh := ImmediateMesh.new()
+	# Translucent fill disc
+	mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES, _player_parry_fill_mat)
+	for i in range(48):
+		var a1 := float(i) / 48 * TAU
+		var a2 := float(i + 1) / 48 * TAU
+		mesh.surface_add_vertex(Vector3(0.0, 0.0, 0.0))
+		mesh.surface_add_vertex(Vector3(sin(a2) * PARRY_RANGE, 0.0, cos(a2) * PARRY_RANGE))
+		mesh.surface_add_vertex(Vector3(sin(a1) * PARRY_RANGE, 0.0, cos(a1) * PARRY_RANGE))
+	mesh.surface_end()
+	# Bright outline (full 360° — parries are omnidirectional)
+	mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP, _player_parry_outline_mat)
+	for i in range(49):
+		var a := float(i) / 48 * TAU
+		mesh.surface_add_vertex(Vector3(sin(a) * PARRY_RANGE, 0.004, cos(a) * PARRY_RANGE))
+	mesh.surface_end()
+	_player_parry_ring_inst.mesh = mesh
+	_player_parry_ring_inst.global_position = Vector3(player.global_position.x, 0.008, player.global_position.z)
+	_player_parry_ring_inst.visible = true

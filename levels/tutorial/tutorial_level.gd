@@ -147,6 +147,10 @@ func _on_enemy_died(_with_ragdoll: bool) -> void:
 	_locked_on = false
 	player.lock_on_target = null
 	_dummy_move_arrow_inst.visible = false
+	hud.show_timing("Entering boss arena...", Color(0.9, 0.7, 0.3))
+	get_tree().create_timer(3.0).timeout.connect(
+		func(): get_tree().change_scene_to_file("res://levels/boss/boss_level.tscn")
+	)
 
 
 func _reset() -> void:
@@ -183,7 +187,7 @@ func _setup_floor() -> void:
 	var img := Image.create(64, 64, false, Image.FORMAT_RGB8)
 	for y in range(64):
 		for x in range(64):
-			var dark: bool = (x / 32 + y / 32) % 2 == 0
+			var dark: bool = ((x >> 5) + (y >> 5)) % 2 == 0
 			img.set_pixel(x, y, Color(0.22, 0.22, 0.26) if dark else Color(0.34, 0.34, 0.40))
 	var tex := ImageTexture.create_from_image(img)
 	var mat := StandardMaterial3D.new()

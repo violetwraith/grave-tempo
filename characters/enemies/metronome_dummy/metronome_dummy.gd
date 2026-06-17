@@ -5,7 +5,7 @@ signal player_entered_range
 signal player_exited_range
 signal player_body_contact
 
-const RANGE_RADIUS := 2.0
+const RANGE_RADIUS := 3.5
 
 @onready var audio: AudioStreamPlayer3D = $AudioStreamPlayer3D
 @onready var detection_zone: Area3D = $DetectionZone
@@ -82,6 +82,10 @@ func restart_audio() -> void:
 
 func stop_audio() -> void:
 	audio.stop()
+
+
+func get_attack_radius() -> float:
+	return RANGE_RADIUS
 
 
 func update_attack_ring(progress: float, direction: Vector3) -> void:
@@ -164,18 +168,12 @@ func _on_body_zone_entered(body: Node3D) -> void:
 func _draw_ground_instructions() -> void:
 	var label := Label3D.new()
 	label.text = (
-		"4-BEAT LOOP\n"
-		+ "---------------\n"
-		+ "1  Attack\n"
-		+ "2  Move\n"
-		+ "3  Move\n"
-		+ "4  Windup + Move\n"
-		+ "\n"
-		+ "Parry beat 1 > posture\n"
-		+ "Posture full > stun x4\n"
-		+ "Hold & release = attack"
+		"Parry attacks and attack on beat to build posture break\n"
+		+ "Posture break gauge filled = stun for a measure\n"
+		+ "Hold & release R2 for critical attack\n"
+		+ "Crits consume active combo for bonus damage"
 	)
-	label.font_size = 11
+	label.font_size = 14
 	label.pixel_size = 0.009
 	label.outline_size = 5
 	label.outline_modulate = Color(0.0, 0.0, 0.0, 1.0)

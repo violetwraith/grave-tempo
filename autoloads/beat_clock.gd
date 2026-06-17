@@ -2,19 +2,27 @@ extends Node
 
 signal beat(beat_number: int)
 signal half_beat(beat_number: int)
+signal quarter_beat(quarter_beat_number: int)
 
-# Fires when the beat click enters the hardware output buffer — audio_offset seconds before the 
-# audible beat. Connect SFX here so they travel through the audio stack in sync with the click and
-# arrive at the player's ears at the same moment.
+# Fires audio_offset seconds before the audible beat so SFX arrive in sync.
 signal pre_beat(beat_number: int)
 
+# Same early-fire as pre_beat but at half-beat (8th note) resolution.
+signal pre_half_beat(half_beat_number: int)
+
+# Same early-fire but at quarter-beat (16th note) resolution.
+signal pre_quarter_beat(quarter_beat_number: int)
+
 var bpm: float = 60.0
-var music_player: Node = null # AudioStreamPlayer or AudioStreamPlayer3D?
+var music_player: Node = null
 
 # init at -1 so logic starts on frame 0
 var _last_beat: int = -1
 var _last_half_beat: int = -1
+var _last_quarter_beat: int = -1
 var _last_pre_beat: int = -1
+var _last_pre_half_beat: int = -1
+var _last_pre_quarter_beat: int = -1
 var _clock_start: float = -1.0
 var _last_time: float = 0.0
 
@@ -72,12 +80,16 @@ func _process(_delta: float) -> void:
 	var bd := beat_duration()
 	var current_beat := int(t / bd)
 	var current_half_beat := int(t / (bd * 0.5))
+	var current_quarter_beat := int(t / (bd * 0.25))
 	if current_beat != _last_beat:
 		_last_beat = current_beat
 		beat.emit(current_beat)
 	if current_half_beat != _last_half_beat:
 		_last_half_beat = current_half_beat
 		half_beat.emit(current_half_beat)
+	if current_quarter_beat != _last_quarter_beat:
+		_last_quarter_beat = current_quarter_beat
+		quarter_beat.emit(current_quarter_beat)
 
 	# pre_beat uses the raw (hardware-buffer) clock: get_beat_time + audio_offset.
 	# This fires audio_offset seconds ahead of the audible beat so that SFX connected here enter the
@@ -87,3 +99,11 @@ func _process(_delta: float) -> void:
 	if current_pre_beat != _last_pre_beat:
 		_last_pre_beat = current_pre_beat
 		pre_beat.emit(current_pre_beat)
+	var current_pre_half_beat := int(raw_t / (bd * 0.5))
+	if current_pre_half_beat != _last_pre_half_beat:
+		_last_pre_half_beat = current_pre_half_beat
+		pre_half_beat.emit(current_pre_half_beat)
+	var current_pre_quarter_beat := int(raw_t / (bd * 0.25))
+	if current_pre_quarter_beat != _last_pre_quarter_beat:
+		_last_pre_quarter_beat = current_pre_quarter_beat
+		pre_quarter_beat.emit(current_pre_quarter_beat)

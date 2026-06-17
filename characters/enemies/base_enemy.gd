@@ -13,6 +13,7 @@ signal posture_broke()
 @export var kb_gravity: float = -20.0
 @export var kb_friction: float = 4.0
 @export var stun_ring_radius: float = 0.45
+@export var hp_bar_height: float = 1.9
 
 const DAMAGE_NUM_LIFETIME: float = 1.6
 const DAMAGE_NUM_RISE: float = 0.9
@@ -25,6 +26,8 @@ var posture_broken: bool = false
 var last_posture_interaction_bt: float = -999.0
 var dead: bool = false
 var stun_beats: int = 0
+var _stun_total_beats: int = 1
+var _stun_end_bt: float = -1.0
 var knocked_back: bool = false
 var kb_vel: Vector3 = Vector3.ZERO
 var fall_vel: float = 0.0
@@ -38,6 +41,7 @@ var _move_start: Vector3 = Vector3.ZERO
 var _move_target: Vector3 = Vector3.ZERO
 var _move_start_bt: float = -1.0
 var _move_ease: float = 3.0
+var _move_duration_beats: float = 1.0
 var _ragdoll: RigidBody3D = null
 var _show_lock_on: bool = false
 
@@ -91,7 +95,7 @@ func _update_physics(delta: float, bt: float) -> void:
 			knocked_back = false
 	elif _moving:
 		var elapsed := bt - _move_start_bt
-		var t := clampf(elapsed / BeatClock.beat_duration(), 0.0, 1.0)
+		var t := clampf(elapsed / (BeatClock.beat_duration() * _move_duration_beats), 0.0, 1.0)
 		var t_ease := 1.0 - pow(1.0 - t, _move_ease)
 		var new_pos := _move_start.lerp(_move_target, t_ease)
 		base_pos.x = new_pos.x
@@ -114,7 +118,7 @@ func _update_visuals(delta: float, bt: float) -> void:
 			pending_hp += (num.damage as float) * frac
 		i -= 1
 
-	var bar_pos := base_pos + Vector3(0.0, 1.9, 0.0)
+	var bar_pos := base_pos + Vector3(0.0, hp_bar_height, 0.0)
 	_hp_bar_real_inst.global_position = bar_pos
 	_hp_bar_pending_inst.global_position = bar_pos
 	if force_show_hp_bar or _damage_numbers.size() > 0:
@@ -135,7 +139,14 @@ func _update_visuals(delta: float, bt: float) -> void:
 			posture = maxf(posture - decay_per_sec * delta, 0.0)
 
 	if posture > 0.0 or posture_broken:
-		var posture_progress := 1.0 if posture_broken else clampf(posture / posture_threshold, 0.0, 1.0)
+		var posture_progress: float
+		if posture_broken:
+			# Wipe the yellow ring down to nothing across the stun's duration so it
+			# vanishes exactly as the stun ends.
+			var total_dur := maxf(float(_stun_total_beats) * BeatClock.beat_duration(), 0.001)
+			posture_progress = clampf((_stun_end_bt - bt) / total_dur, 0.0, 1.0)
+		else:
+			posture_progress = clampf(posture / posture_threshold, 0.0, 1.0)
 		_stun_ring_mat.albedo_color = Color(1.0, 0.95, 0.3, 1.0) if posture_broken else Color(1.0, 0.55, 0.1, 0.9)
 		var dir_sp := tracked_position - base_pos
 		dir_sp.y = 0.0
@@ -169,6 +180,12 @@ func _update_visuals(delta: float, bt: float) -> void:
 		_lock_on_indicator.hide()
 
 
+# Radius of this enemy's attack indicator (the red ring). Subclasses override
+# with their RANGE_RADIUS so parry/damage range checks are identical everywhere.
+func get_attack_radius() -> float:
+	return 2.0
+
+
 func accumulate_posture(mult: float) -> void:
 	last_posture_interaction_bt = BeatClock.get_beat_time()
 	var hp_factor := maxf(1.0 - hp / max_hp, posture_min_factor)
@@ -183,6 +200,8 @@ func accumulate_posture(mult: float) -> void:
 func apply_stun(beats: int) -> void:
 	if beats > stun_beats:
 		stun_beats = beats
+		_stun_total_beats = beats
+		_stun_end_bt = BeatClock.get_beat_time() + beats * BeatClock.beat_duration()
 		_update_stun_indicator()
 
 
@@ -190,6 +209,9 @@ func tick_stun() -> void:
 	if stun_beats > 0:
 		stun_beats -= 1
 		_moving = false
+		# Recompute remaining time so the stun-ring wipe self-corrects to the real
+		# remaining beats regardless of how often the level ticks the stun.
+		_stun_end_bt = BeatClock.get_beat_time() + stun_beats * BeatClock.beat_duration()
 		_update_stun_indicator()
 		if stun_beats == 0:
 			posture_broken = false
@@ -202,11 +224,12 @@ func apply_knockback(vel: Vector3, fall_velocity: float) -> void:
 	_moving = false
 
 
-func start_move(from: Vector3, to: Vector3, start_bt: float, ease: float = 3.0) -> void:
+func start_move(from: Vector3, to: Vector3, start_bt: float, ease_factor: float = 3.0, duration_beats: float = 1.0) -> void:
 	_move_start = from
 	_move_target = to
 	_move_start_bt = start_bt
-	_move_ease = ease
+	_move_ease = ease_factor
+	_move_duration_beats = duration_beats
 	_moving = true
 
 
@@ -214,8 +237,8 @@ func cancel_move() -> void:
 	_moving = false
 
 
-func set_lock_on_highlighted(show: bool) -> void:
-	_show_lock_on = show
+func set_lock_on_highlighted(highlighted: bool) -> void:
+	_show_lock_on = highlighted
 
 
 func spawn_damage_number(damage: float, is_crit: bool) -> void:
