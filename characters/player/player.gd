@@ -1,6 +1,9 @@
 extends CharacterBody3D
 class_name Player
 
+signal died
+signal hp_changed(hp: int, max_hp: int)
+
 const MOVE_SPEED := 5.0
 const JUMP_VELOCITY := 7.0
 const GRAVITY := -20.0
@@ -16,22 +19,32 @@ const BLINK_INTERVAL := 0.07
 const DASH_SPEED := 16.0
 const DASH_DURATION := 0.22
 
+# iframes granted on top of a hit's beat duration / the dash's duration.
+const HIT_iframe_SECS := 0.25
+const DASH_iframe_SECS := 0.06
+
 @onready var camera: Camera3D = $Camera3D
 @onready var _mesh: MeshInstance3D = $Mesh
 
+var max_hp: int = 3
+var hp: int = 3
 var lock_on_target: Node3D = null
 
 var _camera_yaw: float = 0.0
 var _camera_pitch: float = -15.0
 var _target_yaw: float = 0.0
 var _spawn_position: Vector3
-var _iframe: bool = false
-var _blink_timer: float = 0.0
-var _attack_charging: bool = false
 var _dead: bool = false
+var _attack_charging: bool = false
 var _dashing: bool = false
 var _dash_timer: float = 0.0
 var _dash_dir: Vector3 = Vector3.ZERO
+
+# iframes run on wall-clock time so it survives the music detaching mid-fight.
+var _iframe_until: float = -1.0
+var _iframe_start: float = -1.0
+var _iframe_from_dash: bool = false
+var _blink_timer: float = 0.0
 
 
 func _ready() -> void:
@@ -39,30 +52,75 @@ func _ready() -> void:
 	_spawn_position = global_position
 
 
+func configure_max_hp(value: int) -> void:
+	max_hp = maxi(value, 1)
+	hp = max_hp
+	hp_changed.emit(hp, max_hp)
+
+
 func reset() -> void:
 	global_position = _spawn_position
 	velocity = Vector3.ZERO
-	_iframe = false
-	_attack_charging = false
 	_dead = false
+	_attack_charging = false
 	_dashing = false
+	_clear_iframe()
 	_mesh.visible = true
 	lock_on_target = null
 	_camera_yaw = 0.0
 	_camera_pitch = -15.0
 	_target_yaw = 0.0
+	hp = max_hp
+	hp_changed.emit(hp, max_hp)
+
+
+func is_dead() -> bool:
+	return _dead
+
+
+func is_iframe() -> bool:
+	return _iframe_until >= 0.0 and _now() < _iframe_until
+
+
+func is_dash_iframe() -> bool:
+	return is_iframe() and _iframe_from_dash
+
+
+func iframe_progress() -> float:
+	if _iframe_until < 0.0:
+		return 0.0
+	var total := _iframe_until - _iframe_start
+	return clampf(1.0 - (_now() - _iframe_start) / maxf(total, 0.001), 0.0, 1.0)
+
+
+# Returns true if the hit landed (false when dead or iframes active).
+func take_damage(knockback_dir: Vector3 = Vector3.ZERO, knockback_speed: float = 0.0) -> bool:
+	if _dead or is_iframe():
+		return false
+	hp -= 1
+	hp_changed.emit(hp, max_hp)
+	if knockback_dir.length_squared() > 0.001 and knockback_speed > 0.0:
+		apply_knockback(knockback_dir, knockback_speed)
+	if hp <= 0:
+		_dead = true
+		_attack_charging = false
+		_clear_iframe()
+		_mesh.visible = false
+		died.emit()
+	else:
+		grant_iframe(BeatClock.beat_duration() + HIT_iframe_SECS)
+	return true
+
+
+func grant_iframe(seconds: float, from_dash: bool = false) -> void:
+	_iframe_start = _now()
+	_iframe_until = _iframe_start + seconds
+	_iframe_from_dash = from_dash
+	_blink_timer = 0.0
 
 
 func set_attack_charging(value: bool) -> void:
 	_attack_charging = value
-
-
-func set_dead(value: bool) -> void:
-	_dead = value
-
-
-func hide_mesh() -> void:
-	_mesh.visible = false
 
 
 func start_dash(direction: Vector3) -> void:
@@ -71,6 +129,7 @@ func start_dash(direction: Vector3) -> void:
 	var flat := Vector3(direction.x, 0.0, direction.z)
 	_dash_dir = flat.normalized() if flat.length_squared() > 0.001 else \
 		(global_transform.basis * Vector3(0.0, 0.0, -1.0)).normalized()
+	grant_iframe(DASH_DURATION + DASH_iframe_SECS, true)
 
 
 func apply_knockback(direction: Vector3, speed: float) -> void:
@@ -78,14 +137,14 @@ func apply_knockback(direction: Vector3, speed: float) -> void:
 	velocity = direction.normalized() * speed + Vector3(0.0, hop, 0.0)
 
 
-func start_iframe() -> void:
-	_iframe = true
-	_blink_timer = 0.0
+func _clear_iframe() -> void:
+	_iframe_until = -1.0
+	_iframe_start = -1.0
+	_iframe_from_dash = false
 
 
-func end_iframe() -> void:
-	_iframe = false
-	_mesh.visible = true
+func _now() -> float:
+	return Time.get_ticks_usec() / 1_000_000.0
 
 
 func _input(event: InputEvent) -> void:
@@ -111,9 +170,18 @@ func _physics_process(delta: float) -> void:
 
 func _process(delta: float) -> void:
 	_update_camera()
-	if _iframe:
-		_blink_timer += delta
-		_mesh.visible = fmod(_blink_timer, BLINK_INTERVAL * 2.0) < BLINK_INTERVAL
+	_update_iframe_blink(delta)
+
+
+func _update_iframe_blink(delta: float) -> void:
+	if _iframe_until < 0.0:
+		return
+	if _now() >= _iframe_until:
+		_clear_iframe()
+		_mesh.visible = not _dead
+		return
+	_blink_timer += delta
+	_mesh.visible = fmod(_blink_timer, BLINK_INTERVAL * 2.0) < BLINK_INTERVAL
 
 
 func _apply_gravity(delta: float) -> void:

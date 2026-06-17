@@ -4,10 +4,10 @@
 [ext_resource type="AudioStreamWAV" path="res://assets/audio/metronome.wav" id="2"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_1"]
-size = Vector3(0.5, 1.2, 0.5)
+size = Vector3(0.8, 1.9, 0.8)
 
 [sub_resource type="BoxMesh" id="BoxMesh_1"]
-size = Vector3(0.5, 1.2, 0.5)
+size = Vector3(0.8, 1.9, 0.8)
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_1"]
 albedo_color = Color(0.55, 0.35, 0.15, 1)
@@ -17,13 +17,17 @@ radius = 8.0
 
 [node name="MetronomeDummy" type="StaticBody3D"]
 script = ExtResource("1")
+stun_ring_radius = 0.7
+hp_bar_height = 2.6
+overhead_label_height = 2.4
+attack_radius = 3.5
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
-position = Vector3(0, 0.6, 0)
+position = Vector3(0, 0.95, 0)
 shape = SubResource("BoxShape3D_1")
 
 [node name="Mesh" type="MeshInstance3D" parent="."]
-position = Vector3(0, 0.6, 0)
+position = Vector3(0, 0.95, 0)
 mesh = SubResource("BoxMesh_1")
 surface_material_override/0 = SubResource("StandardMaterial3D_1")
 
@@ -39,5 +43,5 @@ shape = SubResource("SphereShape3D_1")
 [node name="BodyZone" type="Area3D" parent="."]
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="BodyZone"]
-position = Vector3(0, 0.6, 0)
+position = Vector3(0, 0.95, 0)
 shape = SubResource("BoxShape3D_1")

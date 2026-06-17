@@ -6,10 +6,10 @@
 [ext_resource type="AudioStreamWAV" path="res://assets/audio/music/boss_phase2.wav" id="4"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_1"]
-size = Vector3(1.2, 3.2, 1.0)
+size = Vector3(1.6, 4.2, 1.4)
 
 [sub_resource type="BoxMesh" id="BoxMesh_1"]
-size = Vector3(1.2, 3.2, 1.0)
+size = Vector3(1.6, 4.2, 1.4)
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_1"]
 albedo_color = Color(0.55, 0.08, 0.08, 1)
@@ -24,15 +24,18 @@ posture_threshold = 9.0
 posture_stun_beats = 6
 posture_min_factor = 0.18
 floor_half_extent = 24.5
-hp_bar_height = 3.8
+hp_bar_height = 4.8
 stun_ring_radius = 2.0
+overhead_label_height = 4.6
+attack_radius = 8.0
+show_overhead_hp_bar = false
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
-position = Vector3(0, 1.6, 0)
+position = Vector3(0, 2.1, 0)
 shape = SubResource("BoxShape3D_1")
 
 [node name="Mesh" type="MeshInstance3D" parent="."]
-position = Vector3(0, 1.6, 0)
+position = Vector3(0, 2.1, 0)
 mesh = SubResource("BoxMesh_1")
 surface_material_override/0 = SubResource("StandardMaterial3D_1")
 
@@ -56,5 +59,5 @@ shape = SubResource("SphereShape3D_1")
 [node name="BodyZone" type="Area3D" parent="."]
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="BodyZone"]
-position = Vector3(0, 1.6, 0)
+position = Vector3(0, 2.1, 0)
 shape = SubResource("BoxShape3D_1")

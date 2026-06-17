@@ -1,40 +1,32 @@
 extends Node
 
+# Time is counted in quarter-note "beats": bpm is the quarter-note tempo and beat_duration()
+# is one beat. The "sixteenth" signal fires four times per beat, and an eighth note is half a
+# beat. So even in 7/8, a "beat" here is a quarter note, never the eighth-note pulse.
+
 signal beat(beat_number: int)
-signal half_beat(beat_number: int)
-signal quarter_beat(quarter_beat_number: int)
+signal sixteenth(sixteenth_number: int)
 
-# Fires audio_offset seconds before the audible beat so SFX arrive in sync.
+# The pre_ signals fire audio_offset seconds before the audible beat, so SFX triggered here
+# reach the output in sync with the beat.
 signal pre_beat(beat_number: int)
-
-# Same early-fire as pre_beat but at half-beat (8th note) resolution.
-signal pre_half_beat(half_beat_number: int)
-
-# Same early-fire but at quarter-beat (16th note) resolution.
-signal pre_quarter_beat(quarter_beat_number: int)
+signal pre_sixteenth(sixteenth_number: int)
 
 var bpm: float = 60.0
 var music_player: Node = null
 
-# init at -1 so logic starts on frame 0
 var _last_beat: int = -1
-var _last_half_beat: int = -1
-var _last_quarter_beat: int = -1
+var _last_sixteenth: int = -1
 var _last_pre_beat: int = -1
-var _last_pre_half_beat: int = -1
-var _last_pre_quarter_beat: int = -1
+var _last_pre_sixteenth: int = -1
 var _clock_start: float = -1.0
 var _last_time: float = 0.0
-
-
-func start_clock() -> void:
-	_clock_start = Time.get_ticks_usec() / 1_000_000.0
 
 
 func detach_music() -> void:
 	if music_player == null:
 		return
-	# Capture current beat time, then hand off to wall clock at same position
+	# Capture the current beat time, then hand off to the wall clock at the same position.
 	var t := get_beat_time()
 	music_player = null
 	_clock_start = Time.get_ticks_usec() / 1_000_000.0 - t - GameSettings.audio_offset
@@ -53,20 +45,12 @@ func get_beat_time() -> float:
 		t = Time.get_ticks_usec() / 1_000_000.0 - _clock_start - GameSettings.audio_offset
 	else:
 		return -1.0
-	# Suppress backward jitter from audio thread timing. A large backward jump
-	# (>100ms) is a genuine restart/seek, not jitter — let it through.
+	# Suppress small backward jitter from the audio thread, but let a large backward
+	# jump (over 100ms) through as a genuine restart or seek.
 	if t < _last_time and _last_time - t < 0.1:
 		t = _last_time
 	_last_time = t
 	return t
-
-
-func get_beat_phase() -> float:
-	return fmod(get_beat_time(), beat_duration()) / beat_duration()
-
-
-func get_beat_number() -> int:
-	return int(get_beat_time() / beat_duration())
 
 
 func beat_duration() -> float:
@@ -79,31 +63,20 @@ func _process(_delta: float) -> void:
 		return
 	var bd := beat_duration()
 	var current_beat := int(t / bd)
-	var current_half_beat := int(t / (bd * 0.5))
-	var current_quarter_beat := int(t / (bd * 0.25))
+	var current_sixteenth := int(t / (bd * 0.25))
 	if current_beat != _last_beat:
 		_last_beat = current_beat
 		beat.emit(current_beat)
-	if current_half_beat != _last_half_beat:
-		_last_half_beat = current_half_beat
-		half_beat.emit(current_half_beat)
-	if current_quarter_beat != _last_quarter_beat:
-		_last_quarter_beat = current_quarter_beat
-		quarter_beat.emit(current_quarter_beat)
+	if current_sixteenth != _last_sixteenth:
+		_last_sixteenth = current_sixteenth
+		sixteenth.emit(current_sixteenth)
 
-	# pre_beat uses the raw (hardware-buffer) clock: get_beat_time + audio_offset.
-	# This fires audio_offset seconds ahead of the audible beat so that SFX connected here enter the
-	# output pipeline in sync with the beat click.
 	var raw_t := t + GameSettings.audio_offset
 	var current_pre_beat := int(raw_t / bd)
 	if current_pre_beat != _last_pre_beat:
 		_last_pre_beat = current_pre_beat
 		pre_beat.emit(current_pre_beat)
-	var current_pre_half_beat := int(raw_t / (bd * 0.5))
-	if current_pre_half_beat != _last_pre_half_beat:
-		_last_pre_half_beat = current_pre_half_beat
-		pre_half_beat.emit(current_pre_half_beat)
-	var current_pre_quarter_beat := int(raw_t / (bd * 0.25))
-	if current_pre_quarter_beat != _last_pre_quarter_beat:
-		_last_pre_quarter_beat = current_pre_quarter_beat
-		pre_quarter_beat.emit(current_pre_quarter_beat)
+	var current_pre_sixteenth := int(raw_t / (bd * 0.25))
+	if current_pre_sixteenth != _last_pre_sixteenth:
+		_last_pre_sixteenth = current_pre_sixteenth
+		pre_sixteenth.emit(current_pre_sixteenth)
