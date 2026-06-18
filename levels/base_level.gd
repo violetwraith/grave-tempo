@@ -242,7 +242,9 @@ func _on_pre_beat(beat_number: int) -> void:
 func _open_parry_window(window_id: int, close_delay: float) -> void:
 	_parry_window_open = true
 	_parry_window_id = window_id
-	get_tree().create_timer(close_delay).timeout.connect(func(): _resolve_parry_window(window_id))
+	# A large audio offset can push close_delay to zero or negative, which would close the
+	# window instantly. Keep it open at least as long as the timing tolerance.
+	get_tree().create_timer(maxf(close_delay, OK_THRESHOLD)).timeout.connect(func(): _resolve_parry_window(window_id))
 
 
 func _resolve_parry_window(window_id: int) -> void:

@@ -284,7 +284,10 @@ func _on_boss_pre_sixteenth(sixteenth_number: int) -> void:
 	_parry_window_open = true
 	_parry_window_id = sixteenth_number
 	var captured := sixteenth_number
-	get_tree().create_timer(BOSS_OK_THRESHOLD + GameSettings.audio_offset).timeout.connect(
+	# A large audio offset can push this delay to zero or negative, which would close the
+	# window instantly. Keep it open at least as long as the timing tolerance.
+	var close_delay := maxf(BOSS_OK_THRESHOLD + GameSettings.audio_offset, BOSS_OK_THRESHOLD)
+	get_tree().create_timer(close_delay).timeout.connect(
 		func(): _resolve_boss_parry_window(captured)
 	)
 
